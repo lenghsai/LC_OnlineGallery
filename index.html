@@ -1,304 +1,356 @@
-'use client';
-import { useState, useEffect } from 'react';
-import { createClient } from '@supabase/supabase-js';
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LC's Universe of Creation</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- React & ReactDOM -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <!-- Babel for JSX -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <!-- Supabase JS SDK -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body class="bg-neutral-950 text-neutral-100 min-h-screen font-sans selection:bg-indigo-500 selection:text-white">
+    <div id="root"></div>
 
-// ==========================================
-// 1. CONFIGURATION (ฝังข้อมูลของมึงไว้ครบแล้ว)
-// ==========================================
-const SUPABASE_URL = 'https://rpcvuvxetaoewihbczhq.supabase.co';
-const SUPABASE_KEY = 'sb_publishable_nwDcJmhUkPwtBfXX9jaU8A_1uYjLt3-';
-const DONATION_URL = 'https://nowpayments.io/donation/lclumivar';
-const ADMIN_PASS = 'lc2026'; // รหัสผ่านเข้าหน้าแอดมิน (เปลี่ยนได้ตามใจมึง)
+    <script type="text/babel">
+        const { useState, useEffect } = React;
 
-const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
+        const SUPABASE_URL = 'https://rpcuvxetaoewihbczhq.supabase.co';
+        const SUPABASE_KEY = 'sb_publishable_nwDcJmhUkPwtBfXX9jaU8A_1uYjLt3-';
+        const DONATION_URL = 'https://nowpayments.io/donation/lclumivar';
 
-export default function LCGalleryApp() {
-  const [posts, setPosts] = useState([]);
-  const [loading, setLoading] = useState(true);
+        const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
-  // Admin & Upload States
-  const [showLogin, setShowLogin] = useState(false);
-  const [isAdmin, setIsAdmin] = useState(false);
-  const [passwordInput, setPasswordInput] = useState('');
-  
-  const [title, setTitle] = useState('');
-  const [file, setFile] = useState(null);
-  const [uploading, setUploading] = useState(false);
+        function LCGalleryApp() {
+            const [posts, setPosts] = useState([]);
+            const [loading, setLoading] = useState(true);
+            
+            // Auth & Admin States
+            const [session, setSession] = useState(null);
+            const [showLogin, setShowLogin] = useState(false);
+            const [email, setEmail] = useState('');
+            const [password, setPassword] = useState('');
+            const [authLoading, setAuthLoading] = useState(false);
 
-  // ดึงข้อมูลรูปภาพและวิดีโอทั้งหมด
-  const fetchPosts = async () => {
-    setLoading(true);
-    const { data, error } = await supabase
-      .from('posts')
-      .select('*')
-      .order('created_at', { ascending: false });
+            // Upload States
+            const [title, setTitle] = useState('');
+            const [file, setFile] = useState(null);
+            const [uploading, setUploading] = useState(false);
 
-    if (!error && data) {
-      setPosts(data);
-    }
-    setLoading(false);
-  };
+            const fetchPosts = async () => {
+                setLoading(true);
+                const { data, error } = await supabase
+                    .from('posts')
+                    .select('*')
+                    .order('created_at', { ascending: false });
 
-  useEffect(() => {
-    fetchPosts();
-  }, []);
+                if (!error && data) {
+                    setPosts(data);
+                }
+                setLoading(false);
+            };
 
-  // เช็กรหัสผ่านแอดมิน
-  const handleLogin = (e) => {
-    e.preventDefault();
-    if (passwordInput === ADMIN_PASS) {
-      setIsAdmin(true);
-      setShowLogin(false);
-      setPasswordInput('');
-    } else {
-      alert('Incorrect Password!');
-    }
-  };
+            useEffect(() => {
+                fetchPosts();
 
-  // อัปโหลดรูปภาพหรือวิดีโอขึ้น Supabase
-  const handleUpload = async (e) => {
-    e.preventDefault();
-    if (!file) return alert('Please select an image or video first.');
+                // เช็กสถานะการล็อกอินปัจจุบัน
+                supabase.auth.getSession().then(({ data: { session } }) => {
+                    setSession(session);
+                });
 
-    setUploading(true);
-    try {
-      const fileExt = file.name.split('.').pop();
-      const fileName = `${Date.now()}.${fileExt}`;
-      const isVideo = file.type.startsWith('video/');
+                // ฟังการเปลี่ยนแปลงสถานะล็อกอิน/ล็อกเอาต์
+                const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+                    setSession(session);
+                });
 
-      // 1. อัปโหลดไฟล์เข้า Storage bucket 'gallery'
-      const { error: uploadError } = await supabase.storage
-        .from('gallery')
-        .upload(fileName, file);
+                return () => subscription.unsubscribe();
+            }, []);
 
-      if (uploadError) throw uploadError;
+            // ล็อกอินผ่าน Supabase Auth
+            const handleLogin = async (e) => {
+                e.preventDefault();
+                setAuthLoading(true);
+                const { error } = await supabase.auth.signInWithPassword({
+                    email,
+                    password,
+                });
 
-      // 2. ดึงลิงก์สาธารณะของไฟล์
-      const { data: publicUrlData } = supabase.storage
-        .from('gallery')
-        .getPublicUrl(fileName);
+                if (error) {
+                    alert('Login failed: ' + error.message);
+                } else {
+                    setShowLogin(false);
+                    setEmail('');
+                    setPassword('');
+                }
+                setAuthLoading(false);
+            };
 
-      // 3. บันทึกลงตาราง posts
-      const { error: dbError } = await supabase.from('posts').insert([
-        {
-          title: title || 'Untitled Artwork',
-          media_url: publicUrlData.publicUrl,
-          media_type: isVideo ? 'video' : 'image',
-        },
-      ]);
+            // ออกจากระบบแอดมิน
+            const handleLogout = async () => {
+                await supabase.auth.signOut();
+            };
 
-      if (dbError) throw dbError;
+            // อัปโหลดไฟล์
+            const handleUpload = async (e) => {
+                e.preventDefault();
+                if (!file) return alert('Please select an image or video first.');
 
-      alert('Published successfully!');
-      setTitle('');
-      setFile(null);
-      e.target.reset();
-      fetchPosts();
-    } catch (err) {
-      alert('Upload failed: ' + err.message);
-    } finally {
-      setUploading(false);
-    }
-  };
+                setUploading(true);
+                try {
+                    const fileExt = file.name.split('.').pop();
+                    const fileName = `${Date.now()}.${fileExt}`;
+                    const isVideo = file.type.startsWith('video/');
 
-  // ลบโพสต์ (เฉพาะแอดมิน)
-  const handleDelete = async (id) => {
-    if (!confirm('Delete this post permanently?')) return;
-    await supabase.from('posts').delete().eq('id', id);
-    fetchPosts();
-  };
+                    const { error: uploadError } = await supabase.storage
+                        .from('gallery')
+                        .upload(fileName, file);
 
-  return (
-    <div className="min-h-screen bg-neutral-950 text-neutral-100 font-sans selection:bg-indigo-500 selection:text-white">
-      {/* ================= HEADER / PROFILE ================= */}
-      <header className="max-w-4xl mx-auto px-4 pt-12 pb-10 text-center border-b border-neutral-900">
-        <div className="inline-block px-3 py-1 mb-4 text-xs font-semibold tracking-widest uppercase bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 rounded-full">
-          LC Gallery Online
-        </div>
-        
-        <h1 className="text-3xl sm:text-5xl font-extrabold tracking-tight bg-gradient-to-r from-white via-neutral-200 to-neutral-500 bg-clip-text text-transparent">
-          Welcome to LC&apos;s Universe of Creation
-        </h1>
-        
-        <p className="mt-4 text-sm sm:text-base text-neutral-400 max-w-xl mx-auto leading-relaxed">
-          Official personal art archive, visual experiments, and creative works by LC. Feel free to explore and support my artistic journey.
-        </p>
+                    if (uploadError) throw uploadError;
 
-        {/* Donation Button */}
-        <div className="mt-8 flex justify-center">
-          <a
-            href={DONATION_URL}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-2.5 bg-white text-black font-semibold text-sm px-7 py-3.5 rounded-full shadow-lg shadow-white/10 hover:bg-neutral-200 transition-all active:scale-95"
-          >
-            <span>☕ Support LC&apos;s Work (Crypto)</span>
-          </a>
-        </div>
-      </header>
+                    const { data: publicUrlData } = supabase.storage
+                        .from('gallery')
+                        .getPublicUrl(fileName);
 
-      {/* ================= ADMIN UPLOAD PANEL (เฉพาะตอนมึงล็อกอิน) ================= */}
-      {isAdmin && (
-        <section className="max-w-xl mx-auto px-4 mt-8">
-          <div className="bg-neutral-900 border border-indigo-500/40 rounded-2xl p-6 shadow-2xl">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-sm font-bold uppercase tracking-wider text-indigo-400">
-                Creator Studio (Post New Work)
-              </h2>
-              <button
-                onClick={() => setIsAdmin(false)}
-                className="text-xs text-neutral-400 hover:text-white"
-              >
-                Lock Admin
-              </button>
-            </div>
+                    const { error: dbError } = await supabase.from('posts').insert([
+                        {
+                            title: title || 'Untitled Artwork',
+                            media_url: publicUrlData.publicUrl,
+                            media_type: isVideo ? 'video' : 'image',
+                        },
+                    ]);
 
-            <form onSubmit={handleUpload} className="space-y-4">
-              <div>
-                <input
-                  type="text"
-                  placeholder="Artwork title or caption..."
-                  value={title}
-                  onChange={(e) => setTitle(e.target.value)}
-                  className="w-full bg-neutral-950 border border-neutral-800 rounded-xl px-4 py-2.5 text-sm text-white placeholder-neutral-500 focus:outline-none focus:border-indigo-500"
-                />
-              </div>
+                    if (dbError) throw dbError;
 
-              <div>
-                <input
-                  type="file"
-                  accept="image/*,video/*"
-                  onChange={(e) => setFile(e.target.files[0])}
-                  className="w-full text-xs text-neutral-400 file:mr-4 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-semibold file:bg-indigo-600 file:text-white hover:file:bg-indigo-500 cursor-pointer"
-                  required
-                />
-              </div>
+                    alert('Published successfully!');
+                    setTitle('');
+                    setFile(null);
+                    e.target.reset();
+                    fetchPosts();
+                } catch (err) {
+                    alert('Upload failed: ' + err.message);
+                } finally {
+                    setUploading(false);
+                }
+            };
 
-              <button
-                type="submit"
-                disabled={uploading}
-                className="w-full bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white font-semibold py-2.5 rounded-xl text-sm transition-all"
-              >
-                {uploading ? 'Uploading to Universe...' : 'Publish Post'}
-              </button>
-            </form>
-          </div>
-        </section>
-      )}
+            // ลบโพสต์
+            const handleDelete = async (id) => {
+                if (!confirm('Delete this post permanently?')) return;
+                const { error } = await supabase.from('posts').delete().eq('id', id);
+                if (error) {
+                    alert('Delete failed: ' + error.message);
+                } else {
+                    fetchPosts();
+                }
+            };
 
-      {/* ================= GALLERY FEED ================= */}
-      <main className="max-w-5xl mx-auto px-4 py-10">
-        {loading ? (
-          <div className="text-center text-neutral-500 py-20 text-sm animate-pulse">
-            Loading gallery...
-          </div>
-        ) : posts.length === 0 ? (
-          <div className="text-center text-neutral-600 py-20 text-sm">
-            No artworks published yet.
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-            {posts.map((post) => (
-              <article
-                key={post.id}
-                className="group bg-neutral-900/60 border border-neutral-800/80 rounded-2xl overflow-hidden flex flex-col justify-between"
-              >
-                <div className="relative aspect-square bg-black overflow-hidden">
-                  {post.media_type === 'video' ? (
-                    <video
-                      src={post.media_url}
-                      controls
-                      playsInline
-                      className="w-full h-full object-cover"
-                    />
-                  ) : (
-                    <img
-                      src={post.media_url}
-                      alt={post.title}
-                      loading="lazy"
-                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
-                    />
-                  )}
+            const isAdmin = !!session;
+
+            return (
+                <div className="min-h-screen bg-neutral-950 text-neutral-100 font-sans selection:bg-indigo-500 selection:text-white">
+                    <header className="max-w-4xl mx-auto px-4 pt-12 pb-10 text-center border-b border-neutral-900">
+                        <div className="inline-block px-3 py-1 mb-4 text-xs font-semibold tracking-widest uppercase bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 rounded-full">
+                            LC Gallery Online
+                        </div>
+                        
+                        <h1 className="text-3xl sm:text-5xl font-extrabold tracking-tight bg-gradient-to-r from-white via-neutral-200 to-neutral-500 bg-clip-text text-transparent">
+                            Welcome to LC's Universe of Creation
+                        </h1>
+                        
+                        <p className="mt-4 text-sm sm:text-base text-neutral-400 max-w-xl mx-auto leading-relaxed">
+                            Official personal art archive, visual experiments, and creative works by LC. Feel free to explore and support my artistic journey.
+                        </p>
+
+                        <div className="mt-8 flex justify-center">
+                            <a
+                                href={DONATION_URL}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="inline-flex items-center gap-2.5 bg-white text-black font-semibold text-sm px-7 py-3.5 rounded-full shadow-lg shadow-white/10 hover:bg-neutral-200 transition-all active:scale-95"
+                            >
+                                <span>☕ Support LC's Work (Crypto)</span>
+                            </a>
+                        </div>
+                    </header>
+
+                    {isAdmin && (
+                        <section className="max-w-xl mx-auto px-4 mt-8">
+                            <div className="bg-neutral-900 border border-indigo-500/40 rounded-2xl p-6 shadow-2xl">
+                                <div className="flex items-center justify-between mb-4">
+                                    <h2 className="text-sm font-bold uppercase tracking-wider text-indigo-400">
+                                        Creator Studio (Post New Work)
+                                    </h2>
+                                    <button
+                                        onClick={handleLogout}
+                                        className="text-xs text-neutral-400 hover:text-white"
+                                    >
+                                        Lock Admin (Sign Out)
+                                    </button>
+                                </div>
+
+                                <form onSubmit={handleUpload} className="space-y-4">
+                                    <div>
+                                        <input
+                                            type="text"
+                                            placeholder="Artwork title or caption..."
+                                            value={title}
+                                            onChange={(e) => setTitle(e.target.value)}
+                                            className="w-full bg-neutral-950 border border-neutral-800 rounded-xl px-4 py-2.5 text-sm text-white placeholder-neutral-500 focus:outline-none focus:border-indigo-500"
+                                        />
+                                    </div>
+
+                                    <div>
+                                        <input
+                                            type="file"
+                                            accept="image/*,video/*"
+                                            onChange={(e) => setFile(e.target.files[0])}
+                                            className="w-full text-xs text-neutral-400 file:mr-4 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-semibold file:bg-indigo-600 file:text-white hover:file:bg-indigo-500 cursor-pointer"
+                                            required
+                                        />
+                                    </div>
+
+                                    <button
+                                        type="submit"
+                                        disabled={uploading}
+                                        className="w-full bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white font-semibold py-2.5 rounded-xl text-sm transition-all"
+                                    >
+                                        {uploading ? 'Uploading to Universe...' : 'Publish Post'}
+                                    </button>
+                                </form>
+                            </div>
+                        </section>
+                    )}
+
+                    <main className="max-w-5xl mx-auto px-4 py-10">
+                        {loading ? (
+                            <div className="text-center text-neutral-500 py-20 text-sm animate-pulse">
+                                Loading gallery...
+                            </div>
+                        ) : posts.length === 0 ? (
+                            <div className="text-center text-neutral-600 py-20 text-sm">
+                                No artworks published yet.
+                            </div>
+                        ) : (
+                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+                                {posts.map((post) => (
+                                    <article
+                                        key={post.id}
+                                        className="group bg-neutral-900/60 border border-neutral-800/80 rounded-2xl overflow-hidden flex flex-col justify-between"
+                                    >
+                                        <div className="relative aspect-square bg-black overflow-hidden">
+                                            {post.media_type === 'video' ? (
+                                                <video
+                                                    src={post.media_url}
+                                                    controls
+                                                    playsInline
+                                                    className="w-full h-full object-cover"
+                                                />
+                                            ) : (
+                                                <img
+                                                    src={post.media_url}
+                                                    alt={post.title}
+                                                    loading="lazy"
+                                                    className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                                                />
+                                            )}
+                                        </div>
+
+                                        <div className="p-4 flex items-center justify-between gap-2">
+                                            <div>
+                                                <h3 className="text-sm font-medium text-neutral-200 line-clamp-1">
+                                                    {post.title}
+                                                </h3>
+                                                <p className="text-[11px] text-neutral-500 mt-0.5">
+                                                    {new Date(post.created_at).toLocaleDateString('en-US', {
+                                                        month: 'short',
+                                                        day: 'numeric',
+                                                        year: 'numeric',
+                                                    })}
+                                                </p>
+                                            </div>
+
+                                            {isAdmin && (
+                                                <button
+                                                    onClick={() => handleDelete(post.id)}
+                                                    className="text-xs bg-red-500/10 text-red-400 hover:bg-red-500/20 px-2.5 py-1 rounded-lg transition-colors"
+                                                >
+                                                    Delete
+                                                </button>
+                                            )}
+                                        </div>
+                                    </article>
+                                ))}
+                            </div>
+                        )}
+                    </main>
+
+                    <footer className="max-w-4xl mx-auto px-4 py-10 border-t border-neutral-900 flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-neutral-600">
+                        <p>© {new Date().getFullYear()} LC Gallery Online. All rights reserved.</p>
+                        
+                        {!isAdmin && (
+                            <button
+                                onClick={() => setShowLogin(!showLogin)}
+                                className="text-neutral-700 hover:text-neutral-400 transition-colors"
+                                title="Creator Access"
+                            >
+                                🔒 Creator Mode
+                            </button>
+                        )}
+                    </footer>
+
+                    {showLogin && !isAdmin && (
+                        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+                            <form
+                                onSubmit={handleLogin}
+                                className="bg-neutral-900 border border-neutral-800 p-6 rounded-2xl w-full max-w-xs space-y-4 shadow-2xl"
+                            >
+                                <h3 className="text-sm font-bold text-white text-center">Creator Authentication</h3>
+                                <input
+                                    type="email"
+                                    placeholder="Admin Email..."
+                                    value={email}
+                                    onChange={(e) => setEmail(e.target.value)}
+                                    className="w-full bg-neutral-950 border border-neutral-800 rounded-xl px-4 py-2 text-sm text-white focus:outline-none focus:border-indigo-500"
+                                    required
+                                    autoFocus
+                                />
+                                <input
+                                    type="password"
+                                    placeholder="Password..."
+                                    value={password}
+                                    onChange={(e) => setPassword(e.target.value)}
+                                    className="w-full bg-neutral-950 border border-neutral-800 rounded-xl px-4 py-2 text-sm text-white focus:outline-none focus:border-indigo-500"
+                                    required
+                                />
+                                <div className="flex gap-2">
+                                    <button
+                                        type="button"
+                                        onClick={() => setShowLogin(false)}
+                                        className="flex-1 bg-neutral-800 text-neutral-300 text-xs py-2 rounded-xl hover:bg-neutral-700"
+                                    >
+                                        Cancel
+                                    </button>
+                                    <button
+                                        type="submit"
+                                        disabled={authLoading}
+                                        className="flex-1 bg-indigo-600 text-white text-xs font-semibold py-2 rounded-xl hover:bg-indigo-500 disabled:opacity-50"
+                                    >
+                                        {authLoading ? 'Verifying...' : 'Unlock'}
+                                    </button>
+                                </div>
+                            </form>
+                        </div>
+                    )}
                 </div>
+            );
+        }
 
-                <div className="p-4 flex items-center justify-between gap-2">
-                  <div>
-                    <h3 className="text-sm font-medium text-neutral-200 line-clamp-1">
-                      {post.title}
-                    </h3>
-                    <p className="text-[11px] text-neutral-500 mt-0.5">
-                      {new Date(post.created_at).toLocaleDateString('en-US', {
-                        month: 'short',
-                        day: 'numeric',
-                        year: 'numeric',
-                      })}
-                    </p>
-                  </div>
-
-                  {isAdmin && (
-                    <button
-                      onClick={() => handleDelete(post.id)}
-                      className="text-xs bg-red-500/10 text-red-400 hover:bg-red-500/20 px-2.5 py-1 rounded-lg transition-colors"
-                    >
-                      Delete
-                    </button>
-                  )}
-                </div>
-              </article>
-            ))}
-          </div>
-        )}
-      </main>
-
-      {/* ================= FOOTER & SECRET ADMIN TRIGGER ================= */}
-      <footer className="max-w-4xl mx-auto px-4 py-10 border-t border-neutral-900 flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-neutral-600">
-        <p>© {new Date().getFullYear()} LC Gallery Online. All rights reserved.</p>
-        
-        {!isAdmin && (
-          <button
-            onClick={() => setShowLogin(!showLogin)}
-            className="text-neutral-700 hover:text-neutral-400 transition-colors"
-            title="Creator Access"
-          >
-            🔒 Creator Mode
-          </button>
-        )}
-      </footer>
-
-      {/* ================= LOGIN MODAL ================= */}
-      {showLogin && !isAdmin && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-          <form
-            onSubmit={handleLogin}
-            className="bg-neutral-900 border border-neutral-800 p-6 rounded-2xl w-full max-w-xs space-y-4 shadow-2xl"
-          >
-            <h3 className="text-sm font-bold text-white text-center">Enter Creator Passcode</h3>
-            <input
-              type="password"
-              placeholder="Passcode..."
-              value={passwordInput}
-              onChange={(e) => setPasswordInput(e.target.value)}
-              className="w-full bg-neutral-950 border border-neutral-800 rounded-xl px-4 py-2 text-sm text-white text-center focus:outline-none focus:border-indigo-500"
-              autoFocus
-            />
-            <div className="flex gap-2">
-              <button
-                type="button"
-                onClick={() => setShowLogin(false)}
-                className="flex-1 bg-neutral-800 text-neutral-300 text-xs py-2 rounded-xl hover:bg-neutral-700"
-              >
-                Cancel
-              </button>
-              <button
-                type="submit"
-                className="flex-1 bg-indigo-600 text-white text-xs font-semibold py-2 rounded-xl hover:bg-indigo-500"
-              >
-                Unlock
-              </button>
-            </div>
-          </form>
-        </div>
-      )}
-    </div>
-  );
-}
+        ReactDOM.createRoot(document.getElementById('root')).render(<LCGalleryApp />);
+    </script>
+</body>
+</html>
